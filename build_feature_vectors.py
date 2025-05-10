@@ -5,6 +5,7 @@ from typing import List, Tuple, Dict, Optional
 from collections import defaultdict
 import numpy as np
 import logging
+import argparse
 
 # Assume exam_pp.data_model provides these
 from exam_pp.data_model import QueryWithFullParagraphList, GradeFilter, parseQueryWithFullParagraphs
@@ -52,36 +53,32 @@ def save_ranklib_features(
     queries: List[QueryWithFullParagraphList],
     qrel_path: Path,
     output_path: Path,
-    prompt_classes={'nuggets', 'questions', 'direct'}
+    mode: str = '',
+    use_one_hot: bool = True,
+    max_query: int = None,
+    max_passage: int = None
 ):
     """
-    Save feature vectors in RankLib format with detailed debugging output.
+    Save feature vectors in RankLib format with mode-based feature selection and debugging.
     
     Args:
         queries: List of QueryWithFullParagraphList objects.
         qrel_path: Path to qrel file with relevance labels.
         output_path: Path to save RankLib feature file.
-        prompt_classes: Set of prompt classes to consider.
+        mode: Feature mode ('nuggets', 'questions', 'one_hot', or '' for default).
+        use_one_hot: Whether to include one-hot encodings (ignored for nuggets/questions modes).
     """
-    logging.info(f"Processing queries with prompt classes: {prompt_classes}")
-    # Load relevance labels
-    rels = read_qrel(qrel_path)
-
-    # Compute rating histogram for sorting
-    hist = rating_histogram(queries)
-    mean_rating = {
-        qid: sum(n * r for r, n in ratings.items()) / sum(ratings.values())
-        for qid, ratings in hist.items() if sum(ratings.values()) > 0
-    }
-    logging.debug(f"Computed histogram for {len(hist)} questions, mean ratings for {len(mean_rating)} questions")
-
-    # Define prompt classes and valid ratings
+    logging.info(f"Processing queries with mode: '{mode}', use_one_hot: {use_one_hot}")
+    
+    # Define prompt classes based on mode
     PROMPT_CLASSES = {}
-    if 'nuggets' in prompt_classes:
+    if mode == 'nuggets':
         PROMPT_CLASSES['NuggetSelfRatedPrompt'] = {0, 1, 2, 3, 4, 5}
-    if 'questions' in prompt_classes:
+    elif mode == 'questions':
         PROMPT_CLASSES['QuestionSelfRatedUnanswerablePromptWithChoices'] = {0, 1, 2, 3, 4, 5}
-    if 'direct' in prompt_classes:
+    else:  # mode == 'one_hot' or default
+        PROMPT_CLASSES['NuggetSelfRatedPrompt'] = {0, 1, 2, 3, 4, 5}
+        PROMPT_CLASSES['QuestionSelfRatedUnanswerablePromptWithChoices'] = {0, 1, 2, 3, 4, 5}
         PROMPT_CLASSES |= {
             'FagB': {0, 1},
             'FagB_few': {0, 1},
@@ -92,10 +89,22 @@ def save_ranklib_features(
         }
     logging.info(f"Using prompt classes: {list(PROMPT_CLASSES.keys())}")
 
+    # Load relevance labels
+    rels = read_qrel(qrel_path)
+
+    # Compute rating histogram for sorting
+    hist = rating_histogram(queries)
+    mean_rating = {
+        qid: sum(n * r for r, n in ratings.items()) / sum(ratings.values())
+        for qid, ratings in hist.items() if sum(ratings.values()) > 0
+    }
+    logging.debug(f"Computed histogram for {len(hist)} questions, mean ratings for {len(mean_rating)} questions")
+    queries = queries[:max_query] if max_query else queries
     with output_path.open('w') as f:
         for q in queries:
             qid = QueryId(q.queryId)
             logging.debug(f"Processing query: {qid}")
+            q.paragraphs = q.paragraphs[:max_passage] if max_passage else q.paragraphs
             for para in q.paragraphs:
                 did = DocId(para.paragraph_id)
                 logging.debug(f"Processing document: {did} for query: {qid}")
@@ -148,56 +157,62 @@ def save_ranklib_features(
                             f"{desc_prefix}_{i}" for i in range(expected_ratings)
                         ]
 
-                    if len(valid_range) <= 3:
+                    if len(valid_range) <= 3:  # For direct prompt classes (e.g., FagB, HELM)
                         r = clamp(ratings[0][1])
-                        feats += [np.array([r]), one_hot_rating(r)]
-                        feature_desc += [f"{pclass}_integer_rating", f"{pclass}_one_hot_{r}"]
-                        logging.debug(f"    Added {pclass} integer rating: {r}, one-hot: {one_hot_rating(r)}")
-                    else:
+                        feats.append(np.array([r]))
+                        feature_desc.append(f"{pclass}_integer_rating")
+                        logging.debug(f"    Added {pclass} integer rating: {r}")
+                        if (mode == 'one_hot' or mode == '') and use_one_hot:
+                            feats.append(one_hot_rating(r))
+                            feature_desc.append(f"{pclass}_one_hot_{r}")
+                            logging.debug(f"    Added {pclass} one-hot: {one_hot_rating(r)}")
+                    else:  # For nuggets or questions
                         # Integer ratings sorted by mean question rating
-                        f, d = rating_feature(
+                        feat, d = rating_feature(
                             sort_key=lambda q: mean_rating.get(q[0], 0),
                             encoding=lambda x: np.array([x]),
                             desc_prefix=f"{pclass}_int_mean_rating"
                         )
-                        feats += f
+                        feats += feat
                         feature_desc += d
 
-                        # One-hot ratings sorted by mean question rating
-                        f, d = rating_feature(
-                            sort_key=lambda q: mean_rating.get(q[0], 0),
-                            encoding=one_hot_rating,
-                            desc_prefix=f"{pclass}_one_hot_mean_rating"
-                        )
-                        feats += f
-                        feature_desc += [f"{desc}_{j}" for desc in d for j in range(6)]
+                        if (mode == 'one_hot' or mode == '') and use_one_hot:
+                            # One-hot ratings sorted by mean question rating
+                            feat, d = rating_feature(
+                                sort_key=lambda q: mean_rating.get(q[0], 0),
+                                encoding=one_hot_rating,
+                                desc_prefix=f"{pclass}_one_hot_mean_rating"
+                            )
+                            feats += feat
+                            feature_desc += [f"{desc}_{j}" for desc in d for j in range(6)]
 
-                        # One-hot ratings sorted by question informativeness
-                        f, d = rating_feature(
-                            sort_key=lambda q: hist.get(q[0], {}).get(4, 0) + hist.get(q[0], {}).get(5, 0),
-                            encoding=one_hot_rating,
-                            desc_prefix=f"{pclass}_one_hot_informativeness"
-                        )
-                        feats += f
-                        feature_desc += [f"{desc}_{j}" for desc in d for j in range(6)]
+                            # One-hot ratings sorted by question informativeness
+                            feat, d = rating_feature(
+                                sort_key=lambda q: hist.get(q[0], {}).get(4, 0) + hist.get(q[0], {}).get(5, 0),
+                                encoding=one_hot_rating,
+                                desc_prefix=f"{pclass}_one_hot_informativeness"
+                            )
+                            feats += feat
+                            feature_desc += [f"{desc}_{j}" for desc in d for j in range(6)]
 
                         # Integer ratings sorted by rating
-                        f, d = rating_feature(
+                        feat, d = rating_feature(
                             sort_key=lambda q: q[1],
                             encoding=lambda x: np.array([x]),
                             desc_prefix=f"{pclass}_int_rating"
                         )
-                        feats += f
+                        feats += feat
                         feature_desc += d
 
-                        # One-hot ratings sorted by rating
-                        f, d = rating_feature(
-                            sort_key=lambda q: q[1],
-                            encoding=one_hot_rating,
-                            desc_prefix=f"{pclass}_one_hot_rating"
-                        )
-                        feats += f
-                        feature_desc += [f"{desc}_{j}" for desc in d for j in range(6)]
+                        if (mode == 'one_hot' or mode == '') and use_one_hot:
+                            # One-hot ratings sorted by rating
+                            feat, d = rating_feature(
+                                sort_key=lambda q: q[1],
+                                encoding=one_hot_rating,
+                                desc_prefix=f"{pclass}_one_hot_rating"
+                            )
+                            feats += feat
+                            feature_desc += [f"{desc}_{j}" for desc in d for j in range(6)]
 
                         # Number of questions answered with N or better
                         counts = [sum(1 for _, r in ratings if r >= n) for n in range(5)]
@@ -221,17 +236,22 @@ def save_ranklib_features(
                 logging.debug(f"Wrote RankLib line: {label} qid:{qid} ... # {did}")
 
 def main():
-    import argparse
-    parser = argparse.ArgumentParser(description="Save features in RankLib format with debugging")
+    parser = argparse.ArgumentParser(description="Save features in RankLib format with mode-based selection")
     parser.add_argument('--judgements', '-j', type=Path, required=True, help='exampp judgements file (JSONL.gz)')
     parser.add_argument('--qrel', '-q', type=Path, required=True, help='Query relevance file')
     parser.add_argument('--output', '-o', type=Path, required=True, help='Output RankLib feature file')
+    parser.add_argument('--mode', type=str, default='', choices=['', 'nuggets', 'questions', 'all_concat'],
+                        help='Feature mode: nuggets, questions, one_hot, or empty for default')
+    parser.add_argument('--max-query', type=int, required=False, help='Max number of queries to process')
+    parser.add_argument('--max-passage',  type=int, required=False, help='Max number of passages to process')
+    
+    parser.add_argument('--no-one-hot', action='store_false', dest='use_one_hot', help='Disable one-hot encodings')
     args = parser.parse_args()
 
     logging.info(f"Loading judgements from {args.judgements}")
     queries = parseQueryWithFullParagraphs(args.judgements)
     logging.info(f"Loaded {len(queries)} queries")
-    save_ranklib_features(queries, args.qrel, args.output)
+    save_ranklib_features(queries, args.qrel, args.output, mode=args.mode, use_one_hot=args.use_one_hot, max_query=args.max_query, max_passage=args.max_passage)
 
 if __name__ == "__main__":
     main()
