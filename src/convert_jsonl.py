@@ -1,6 +1,9 @@
 import json
 import argparse
 
+
+##-----ENDED UP NOT USING THIS FILE CONVERSION AT ALL------
+
 def convert(input_json_file, output_json_file):
     with open(input_json_file, 'r') as f:
         lines = f.readlines()

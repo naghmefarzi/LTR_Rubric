@@ -1,11 +1,14 @@
 #!/bin/bash
 
-BASE_FILTERED_DIR="/home/nf1104/work/Summer 25/LTR_Rubric/train/flant5/dl19/filtered_dl19"
+BASE_FILTERED_DIR="/home/nf1104/work/Summer 25/LTR_Rubric/train/llama3.3-70b/dl19/filtered_dl19"
 TRAIN_QREL='/home/nf1104/work/data/dl/data/dl2019/2019binary-qrel.txt'
-ORG_RUN_FILES='/home/nf1104/work/data/dl/data/dl2019/runs_dl2019'
+ORG_RUN_FILES='/home/nf1104/work/trec-dl-2019/runs'
+OUT_BASE_DIR='ranklips-results/llama3.3-70b/dl19'
+
+
+
 
 # Shared settings
-OUT_BASE_DIR='ranklips-results/flant5/dl19'
 OUT_PREFIX_CV="cv-5fold"
 EXPERIMENT_NAME="5-fold rank-lips experiment"
 FEAT_PARAM="--feature-variant FeatScore"

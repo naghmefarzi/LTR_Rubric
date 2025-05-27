@@ -7,7 +7,7 @@ def get_run_name(run_path):
 
 def main():
     base_run_dir = "/home/nf1104/work/data/runs/runs_trecdl2019"
-    feature_dir = "/home/nf1104/work/Summer 25/LTR_Rubric/train/flant5/dl19"
+    feature_dir = "/home/nf1104/work/Summer 25/LTR_Rubric/train/llama3.3-70b/dl19"
     output_root = os.path.join(feature_dir, "filtered_dl19")
 
     base_runs = glob.glob(os.path.join(base_run_dir, "*.run"))
@@ -20,7 +20,7 @@ def main():
 
         print(f"Processing: {run_name}")
         cmd = [
-            "python", "filter_features_by_system_run.py",
+            "python", "./src/filter_features_by_system_run.py",
             "--base-run", base_run,
             "--feature-runs", *feature_runs,
             "--output-dir", output_dir,

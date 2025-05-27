@@ -10,7 +10,7 @@ EXPERIMENT_NAME="5-fold rank-lips experiment"
 
 
 FEAT_PARAM="--feature-variant FeatScore"
-OPT_PARAM="--z-score --default-any-feature-value 0.0 --convergence-threshold 0.0001 --mini-batch-size 100  --folds 5 --restarts 20 --save-heldout-queries-in-model"
+OPT_PARAM="--z-score --default-any-feature-value 0.0 --convergence-threshold 0.0001 --mini-batch-size 100  --folds 5 --restarts 10 --save-heldout-queries-in-model"
 
 echo " ---- 5-FOLD CROSS-VALIDATION ----- "
 

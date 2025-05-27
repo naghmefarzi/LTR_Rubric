@@ -80,6 +80,7 @@ DEBUG:   1: 4 (QuestionSelfRatedUnanswerablePromptWithChoices_int_mean_rating_0)
 
 
 To assess the reranked version of each run file using multi criteria features:
+
 1. run the batch_filter.py (to filter the query-doc pairs)
 2. run the ranklip_command_for_all.sh (to rerank)
 3. run trec_eval_ndcg_for_reranked_run_files.sh (for TREC evaluation)
