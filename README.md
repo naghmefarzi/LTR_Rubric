@@ -16,7 +16,7 @@ These are extracted from .jsonl.gz files containing LLM-generated judgments.
 
 
 
-#### 🔧 Example (`build_feature.sh`)
+#### Example (`build_feature.sh`)
 
 ```bash
 input='/home/nf1104/work/data/rubric_format_inputs/flant5large/llmjudge_test_4prompts_qrel_flant5large.jsonl.gz'
