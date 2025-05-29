@@ -79,8 +79,94 @@ DEBUG:   1: 4 (QuestionSelfRatedUnanswerablePromptWithChoices_int_mean_rating_0)
 
 
 
-To assess the reranked version of each run file using multi criteria features:
 
-1. run the batch_filter.py (to filter the query-doc pairs)
-2. run the ranklip_command_for_all.sh (to rerank)
-3. run trec_eval_ndcg_for_reranked_run_files.sh (for TREC evaluation)
+---
+
+## Workflow for Reranking and Evaluation
+This workflow outlines how to rerank documents using LLM-derived criteria judgments and evaluate the effectiveness of reranking using TREC-style metrics. It assumes that you already have LLM-generated .jsonl.gz judgment files and baseline run files.
+
+### Step 1: Build Feature Vectors
+
+Use build_feature_vectors.py to generate:
+
+1. RankLib-compatible feature vectors (.ranklib file)
+
+2. Criterion-specific run files for reranking
+
+These are extracted from .jsonl.gz files containing LLM-generated judgments.
+
+
+
+#### 🔧 Example (`build_feature.sh`)
+
+```bash
+input='/home/nf1104/work/data/rubric_format_inputs/flant5large/llmjudge_test_4prompts_qrel_flant5large.jsonl.gz'
+output_dir='./feature_vectors'
+qrel='/home/nf1104/work/data/dl/data/dl2023/converted/new_qrels.txt'
+o_path='train/flant5/dl23'
+f_v_output='./feature_vectors/flant5_dl23.ranklib'
+
+# Repeat this for each criterion
+for criterion in Exactness Coverage Topicality "Contextual Fit"; do
+  python3 build_feature_vectors.py \
+    --judgements "$input" \
+    --qrel "$qrel" \
+    --output "$f_v_output" \
+    --criteria-run-dir "$output_dir" \
+    --mode multi_criteria \
+    --criteria-run-dir "$o_path" \
+    --criterion "$criterion" \
+    --no-one-hot
+done
+```
+### Step 2: Filter Feature Run Files
+Use ```batch_filter.py``` to filter the criterion-specific run files so that only query-document pairs that exist in the base system runs are retained.
+
+
+Input:
+Base runs: ```/home/nf1104/work/data/runs/runs_trecdl2019/*.run```
+Feature runs: ```/home/nf1104/work/Summer 25/LTR_Rubric/train/llama3.3-70b/dl19/*.run``` (generated in step 1)
+
+Output:
+
+Filtered run files are saved as:
+```train/llama3.3-70b/dl19/filtered_dl19/<system_name>/```
+
+### Step 3: Rerank with Rank-LiPS
+Use ranklip-command_for_all.sh to perform 5-fold cross-validation with the Rank-LiPS reranker for each system.
+```bash ranklip-command_for_all.sh```
+Input:
+
+Filtered features: ```train/llama3.3-70b/dl19/filtered_dl19/<system>/```
+
+QREL: ```/home/nf1104/work/data/dl/data/dl2019/2019binary-qrel.txt```
+
+Output:
+
+Reranked test runs and metrics in: ```ranklips-results/llama3.3-70b/dl19/<system>/```
+
+Each system folder includes:
+
+```cv-5fold-run-test.run```: Final reranked results
+
+```MAP_scores.txt```: MAP scores on train/test sets
+
+
+
+### Step 4: Evaluate with TREC Metrics
+Use ndcg_eval_script.py to compute standard IR evaluation metrics (e.g., NDCG@20) on the reranked outputs.
+
+This script performs the following:
+
+- Cleans malformed or incomplete .run files
+
+- Computes metrics with trec_eval
+
+- Logs performance before and after reranking
+
+#### Output:
+— A .txt file of NDCG@20 scores before reranking
+
+- A .txt file of NDCG@20 scores before reranking
+
+- Per-run evaluation results in: ndcg_scores.txt of each runfile-specific folders in ```/ranklips-results```
